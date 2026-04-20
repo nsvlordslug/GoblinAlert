@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const { removeStreamer, getDb } = require('../db/database');
+const { removeStreamer, getDb, countStreamersByYoutubeChannel } = require('../db/database');
 const { unsubscribeFromStreamEvents } = require('../platforms/twitchEventSub');
+const youtubePubSub = require('../platforms/youtubePubSub');
 const logger = require('../utils/logger');
 
 module.exports = {
@@ -18,9 +19,10 @@ module.exports = {
   async execute(interaction) {
     const name = interaction.options.getString('name');
 
-    // Get Twitch platform entries before removing (need user IDs for unsubscribe)
+    // Get Twitch and YouTube platform entries before removing (need IDs for unsubscribe)
     const db = getDb();
     const streamerRow = db.prepare('SELECT id FROM streamers WHERE guild_id = ? AND display_name = ? COLLATE NOCASE').get(interaction.guildId, name);
+    let youtubeChannelIdsToCheck = [];
     if (streamerRow) {
       const twitchPlatforms = db.prepare(
         "SELECT * FROM streamer_platforms WHERE streamer_id = ? AND platform = 'twitch' AND platform_user_id IS NOT NULL"
@@ -43,6 +45,12 @@ module.exports = {
           }
         }
       }
+
+      // Capture YouTube channel IDs for post-delete orphan check
+      const youtubeRows = db.prepare(
+        "SELECT DISTINCT platform_user_id FROM streamer_platforms WHERE streamer_id = ? AND platform = 'youtube' AND platform_user_id IS NOT NULL"
+      ).all(streamerRow.id);
+      youtubeChannelIdsToCheck = youtubeRows.map(r => r.platform_user_id);
     }
 
     const removed = removeStreamer(interaction.guildId, name);
@@ -53,5 +61,15 @@ module.exports = {
 
     logger.info(`Guild ${interaction.guildId}: removed streamer ${name}`);
     await interaction.reply(`Removed **${removed.display_name}** and all their platform links from the watchlist.`);
+
+    for (const channelId of youtubeChannelIdsToCheck) {
+      if (countStreamersByYoutubeChannel(channelId) === 0) {
+        try {
+          await youtubePubSub.unsubscribe(channelId);
+        } catch (err) {
+          logger.warn(`Failed to unsubscribe from YouTube channel ${channelId}: ${err.message}`);
+        }
+      }
+    }
   }
 };

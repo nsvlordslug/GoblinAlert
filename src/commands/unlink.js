@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const { unlinkPlatform } = require('../db/database');
+const { unlinkPlatform, getDb, countStreamersByYoutubeChannel } = require('../db/database');
 const { PLATFORM_LABELS } = require('../utils/constants');
+const youtubePubSub = require('../platforms/youtubePubSub');
 const logger = require('../utils/logger');
 
 module.exports = {
@@ -28,12 +29,31 @@ module.exports = {
     const name = interaction.options.getString('name');
     const platform = interaction.options.getString('platform');
 
+    let youtubeChannelIdToCheck = null;
+    if (platform === 'youtube') {
+      const row = getDb().prepare(`
+        SELECT sp.platform_user_id FROM streamer_platforms sp
+        JOIN streamers s ON sp.streamer_id = s.id
+        WHERE s.guild_id = ? AND s.display_name = ? COLLATE NOCASE AND sp.platform = 'youtube'
+      `).get(interaction.guildId, name);
+      youtubeChannelIdToCheck = row?.platform_user_id;
+    }
+
     try {
       unlinkPlatform(interaction.guildId, name, platform);
       logger.info(`Guild ${interaction.guildId}: unlinked ${platform} from ${name}`);
       await interaction.reply(`Unlinked **${PLATFORM_LABELS[platform]}** from **${name}**.`);
     } catch (err) {
       await interaction.reply({ content: err.message, ephemeral: true });
+      return;
+    }
+
+    if (youtubeChannelIdToCheck && countStreamersByYoutubeChannel(youtubeChannelIdToCheck) === 0) {
+      try {
+        await youtubePubSub.unsubscribe(youtubeChannelIdToCheck);
+      } catch (err) {
+        logger.warn(`Failed to unsubscribe from YouTube channel ${youtubeChannelIdToCheck}: ${err.message}`);
+      }
     }
   }
 };
