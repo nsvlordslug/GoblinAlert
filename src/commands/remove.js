@@ -1,7 +1,8 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const { removeStreamer, getDb, countStreamersByYoutubeChannel } = require('../db/database');
+const { removeStreamer, getDb, countStreamersByYoutubeChannel, countStreamersByKickChannel } = require('../db/database');
 const { unsubscribeFromStreamEvents } = require('../platforms/twitchEventSub');
 const youtubePubSub = require('../platforms/youtubePubSub');
+const kickEvents = require('../platforms/kickEvents');
 const logger = require('../utils/logger');
 
 module.exports = {
@@ -23,6 +24,7 @@ module.exports = {
     const db = getDb();
     const streamerRow = db.prepare('SELECT id FROM streamers WHERE guild_id = ? AND display_name = ? COLLATE NOCASE').get(interaction.guildId, name);
     let youtubeChannelIdsToCheck = [];
+    let kickChannelIdsToCheck = [];
     if (streamerRow) {
       const twitchPlatforms = db.prepare(
         "SELECT * FROM streamer_platforms WHERE streamer_id = ? AND platform = 'twitch' AND platform_user_id IS NOT NULL"
@@ -51,6 +53,12 @@ module.exports = {
         "SELECT DISTINCT platform_user_id FROM streamer_platforms WHERE streamer_id = ? AND platform = 'youtube' AND platform_user_id IS NOT NULL"
       ).all(streamerRow.id);
       youtubeChannelIdsToCheck = youtubeRows.map(r => r.platform_user_id);
+
+      // Capture Kick channel IDs for post-delete orphan check
+      const kickRows = db.prepare(
+        "SELECT DISTINCT platform_user_id FROM streamer_platforms WHERE streamer_id = ? AND platform = 'kick' AND platform_user_id IS NOT NULL"
+      ).all(streamerRow.id);
+      kickChannelIdsToCheck = kickRows.map(r => r.platform_user_id);
     }
 
     const removed = removeStreamer(interaction.guildId, name);
@@ -68,6 +76,16 @@ module.exports = {
           await youtubePubSub.unsubscribe(channelId);
         } catch (err) {
           logger.warn(`Failed to unsubscribe from YouTube channel ${channelId}: ${err.message}`);
+        }
+      }
+    }
+
+    for (const channelId of kickChannelIdsToCheck) {
+      if (countStreamersByKickChannel(channelId) === 0) {
+        try {
+          await kickEvents.unsubscribe(channelId);
+        } catch (err) {
+          logger.warn(`Failed to unsubscribe from Kick channel ${channelId}: ${err.message}`);
         }
       }
     }
