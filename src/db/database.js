@@ -12,6 +12,7 @@ function getDb() {
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
     initTables();
+    runMigrations();
     logger.info(`Database connected: ${DB_PATH}`);
   }
   return db;
@@ -72,6 +73,18 @@ function initTables() {
       FOREIGN KEY (guild_id) REFERENCES guilds(guild_id)
     );
   `);
+}
+
+/**
+ * Run idempotent schema migrations. Safe to call on every boot.
+ * Each migration checks current state with PRAGMA table_info before mutating.
+ */
+function runMigrations() {
+  const streamerCols = db.prepare('PRAGMA table_info(streamers)').all();
+  if (!streamerCols.some(c => c.name === 'custom_message')) {
+    db.exec('ALTER TABLE streamers ADD COLUMN custom_message TEXT');
+    logger.info('Migration: added streamers.custom_message column');
+  }
 }
 
 // ─── Guild Operations ───
