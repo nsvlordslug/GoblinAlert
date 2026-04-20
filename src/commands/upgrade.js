@@ -14,8 +14,8 @@ module.exports = {
       .setColor(0x5865F2)
       .setDescription(`You're currently on the **${currentTier.name}** tier.`)
       .addFields(
-        { name: 'Free', value: '25 streamers\nTwitch + YouTube', inline: true },
-        { name: 'Plus — $3/mo', value: '50 streamers\nTwitch + YouTube', inline: true }
+        { name: 'Free', value: '25 streamers\nTwitch + YouTube + Kick', inline: true },
+        { name: 'Plus — $3/mo', value: '50 streamers\nTwitch + YouTube + Kick', inline: true }
       )
       .setFooter({ text: 'More platforms and tiers coming soon. Subscriptions are managed through Discord.' });
 
