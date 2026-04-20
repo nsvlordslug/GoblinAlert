@@ -1,10 +1,12 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const { addStreamer, ensureGuild, getDb, getYoutubeSubscription } = require('../db/database');
+const { addStreamer, ensureGuild, getDb, getYoutubeSubscription, getKickSubscription } = require('../db/database');
 const { canAddStreamer, canAddTikTok } = require('../services/tierGate');
 const { PAID_PLATFORMS, PLATFORM_LABELS } = require('../utils/constants');
 const { getTwitchUserId, subscribeToStreamEvents } = require('../platforms/twitchEventSub');
 const youtubeApi = require('../platforms/youtubeApi');
 const youtubePubSub = require('../platforms/youtubePubSub');
+const kickApi = require('../platforms/kickApi');
+const kickEvents = require('../platforms/kickEvents');
 const logger = require('../utils/logger');
 
 async function prepareYouTubePlatform(userInput) {
@@ -25,6 +27,24 @@ async function prepareYouTubePlatform(userInput) {
   };
 }
 
+async function prepareKickPlatform(userInput) {
+  if (!kickEvents.isConfigured()) {
+    throw new Error('Kick integration isn\'t configured on this bot. Please contact the bot operator.');
+  }
+  const resolved = await kickApi.resolveChannel(userInput);
+  if (!resolved) {
+    throw new Error(`Could not find Kick channel "${userInput}". Check the username, URL, or broadcaster ID and try again.`);
+  }
+  const existing = getKickSubscription(resolved.broadcasterUserId);
+  if (!existing) {
+    await kickEvents.subscribe(resolved.broadcasterUserId);
+  }
+  return {
+    resolvedUsername: resolved.slug,
+    resolvedUserId: resolved.broadcasterUserId
+  };
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('add')
@@ -36,7 +56,8 @@ module.exports = {
         .setRequired(true)
         .addChoices(
           { name: 'Twitch', value: 'twitch' },
-          { name: 'YouTube', value: 'youtube' }
+          { name: 'YouTube', value: 'youtube' },
+          { name: 'Kick', value: 'kick' }
         )
     )
     .addStringOption(option =>
@@ -97,18 +118,27 @@ module.exports = {
         await interaction.reply({ content: `:x: ${err.message}`, ephemeral: true });
         return;
       }
+    } else if (platform === 'kick') {
+      try {
+        const prepared = await prepareKickPlatform(username);
+        finalUsername = prepared.resolvedUsername;
+        finalUserId = prepared.resolvedUserId;
+      } catch (err) {
+        await interaction.reply({ content: `:x: ${err.message}`, ephemeral: true });
+        return;
+      }
     }
 
     try {
       addStreamer(interaction.guildId, displayName, platform, finalUsername);
       logger.info(`Guild ${interaction.guildId}: added ${displayName} on ${platform} (${finalUsername})`);
 
-      if (platform === 'youtube' && finalUserId) {
+      if ((platform === 'youtube' || platform === 'kick') && finalUserId) {
         getDb().prepare(`
           UPDATE streamer_platforms SET platform_user_id = ?
           WHERE streamer_id = (SELECT id FROM streamers WHERE guild_id = ? AND display_name = ? COLLATE NOCASE)
-            AND platform = 'youtube'
-        `).run(finalUserId, interaction.guildId, displayName);
+            AND platform = ?
+        `).run(finalUserId, interaction.guildId, displayName, platform);
       }
 
       // If platform is Twitch, resolve user ID and subscribe to EventSub
