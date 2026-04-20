@@ -183,6 +183,22 @@ function unlinkPlatform(guildId, displayName, platform) {
   return streamer;
 }
 
+function setCustomMessage(guildId, displayName, message) {
+  const db = getDb();
+  const streamer = db.prepare('SELECT * FROM streamers WHERE guild_id = ? AND display_name = ? COLLATE NOCASE').get(guildId, displayName);
+  if (!streamer) throw new Error(`Streamer "${displayName}" not found.`);
+  db.prepare('UPDATE streamers SET custom_message = ? WHERE id = ?').run(message, streamer.id);
+  return streamer;
+}
+
+function clearCustomMessage(guildId, displayName) {
+  const db = getDb();
+  const streamer = db.prepare('SELECT * FROM streamers WHERE guild_id = ? AND display_name = ? COLLATE NOCASE').get(guildId, displayName);
+  if (!streamer) throw new Error(`Streamer "${displayName}" not found.`);
+  db.prepare('UPDATE streamers SET custom_message = NULL WHERE id = ?').run(streamer.id);
+  return streamer;
+}
+
 function getStreamers(guildId) {
   const db = getDb();
   const streamers = db.prepare('SELECT * FROM streamers WHERE guild_id = ?').all(guildId);
@@ -230,6 +246,8 @@ module.exports = {
   removeStreamer,
   linkPlatform,
   unlinkPlatform,
+  setCustomMessage,
+  clearCustomMessage,
   getStreamers,
   getStreamerCount,
   getTikTokCount,
