@@ -35,7 +35,7 @@ async function notifyOwnerOfFailure(discordClient, guildId, streamer, error) {
 /**
  * Handle a streamer going live on a platform
  */
-async function handleStreamOnline(platform, platformUserId, platformUsername, discordClient) {
+async function handleStreamOnline(platform, platformUserId, platformUsername, discordClient, preFetchedStreamDetails = null) {
   const db = getDb();
 
   // Find all streamer_platforms entries matching this platform + user
@@ -59,13 +59,24 @@ async function handleStreamOnline(platform, platformUserId, platformUsername, di
         db.prepare('UPDATE streamer_platforms SET platform_user_id = ? WHERE id = ?').run(platformUserId, entry.id);
       }
 
-      // Mark as live
-      db.prepare('UPDATE streamer_platforms SET is_live = 1, last_live_at = CURRENT_TIMESTAMP WHERE id = ?').run(entry.id);
+      // Mark as live (and track current_video_id for YouTube)
+      const updates = ['is_live = 1', 'last_live_at = CURRENT_TIMESTAMP'];
+      const params = [];
+      if (platform === 'youtube' && preFetchedStreamDetails?.videoId) {
+        updates.push('current_video_id = ?');
+        params.push(preFetchedStreamDetails.videoId);
+      }
+      params.push(entry.id);
+      db.prepare(`UPDATE streamer_platforms SET ${updates.join(', ')} WHERE id = ?`).run(...params);
 
-      // Get stream details
-      let streamDetails = null;
-      if (platform === 'twitch') {
-        streamDetails = await getStreamInfo(platformUserId);
+      // Get stream details (use pre-fetched if provided, else dispatch by platform)
+      let streamDetails = preFetchedStreamDetails;
+      if (!streamDetails) {
+        if (platform === 'twitch') {
+          streamDetails = await getStreamInfo(platformUserId);
+        } else if (platform === 'youtube') {
+          logger.warn(`YouTube handleStreamOnline called without preFetchedStreamDetails for channel ${platformUserId}; no fallback lookup available`);
+        }
       }
 
       // Get guild config
@@ -136,8 +147,12 @@ async function handleStreamOffline(platform, platformUserId, platformUsername, d
 
   for (const entry of platformEntries) {
     try {
-      // Mark as offline
-      db.prepare('UPDATE streamer_platforms SET is_live = 0 WHERE id = ?').run(entry.id);
+      // Mark as offline (clear YouTube video ID so the offline poller stops tracking it)
+      if (platform === 'youtube') {
+        db.prepare('UPDATE streamer_platforms SET is_live = 0, current_video_id = NULL WHERE id = ?').run(entry.id);
+      } else {
+        db.prepare('UPDATE streamer_platforms SET is_live = 0 WHERE id = ?').run(entry.id);
+      }
 
       // Get guild config
       const guild = db.prepare('SELECT * FROM guilds WHERE guild_id = ?').get(entry.guild_id);
