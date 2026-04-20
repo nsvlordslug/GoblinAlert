@@ -46,10 +46,17 @@ const PLATFORM_LABELS = {
   tiktok: 'TikTok'
 };
 
+const PLATFORM_EMOJIS = {
+  twitch: { id: '1495701020678951013', name: 'twitchlogo' },
+  youtube: { id: '1495700890110132336', name: 'ytlogo' },
+  kick: { id: '1495701146671513600', name: 'kicklogo' },
+  tiktok: { id: '1495701092783100005', name: 'tiktoklogo' }
+};
+
 // Free platforms (no tier needed)
 const FREE_PLATFORMS = ['twitch', 'youtube', 'kick'];
 
 // Paid platforms (require specific tier)
 const PAID_PLATFORMS = ['tiktok'];
 
-module.exports = { TIERS, PLATFORMS, PLATFORM_COLORS, PLATFORM_LABELS, FREE_PLATFORMS, PAID_PLATFORMS };
+module.exports = { TIERS, PLATFORMS, PLATFORM_COLORS, PLATFORM_LABELS, PLATFORM_EMOJIS, FREE_PLATFORMS, PAID_PLATFORMS };

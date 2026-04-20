@@ -1,5 +1,5 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const { PLATFORM_COLORS, PLATFORM_LABELS } = require('../utils/constants');
+const { PLATFORM_COLORS, PLATFORM_LABELS, PLATFORM_EMOJIS } = require('../utils/constants');
 const { getDb } = require('../db/database');
 const logger = require('../utils/logger');
 
@@ -84,12 +84,14 @@ function buildButtons(livePlatforms) {
   for (const p of livePlatforms) {
     const url = getPlatformUrl(p.platform, p.platform_username);
     if (url) {
-      row.addComponents(
-        new ButtonBuilder()
-          .setLabel(PLATFORM_LABELS[p.platform])
-          .setStyle(ButtonStyle.Link)
-          .setURL(url)
-      );
+      const button = new ButtonBuilder()
+        .setLabel(PLATFORM_LABELS[p.platform])
+        .setStyle(ButtonStyle.Link)
+        .setURL(url);
+      if (PLATFORM_EMOJIS[p.platform]) {
+        button.setEmoji(PLATFORM_EMOJIS[p.platform]);
+      }
+      row.addComponents(button);
     }
   }
 
