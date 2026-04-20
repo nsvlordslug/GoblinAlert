@@ -106,6 +106,18 @@ function runMigrations() {
     `);
     logger.info('Migration: created youtube_subscriptions table');
   }
+
+  const kickTables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='kick_subscriptions'").all();
+  if (kickTables.length === 0) {
+    db.exec(`
+      CREATE TABLE kick_subscriptions (
+        broadcaster_user_id TEXT PRIMARY KEY,
+        subscription_id TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    `);
+    logger.info('Migration: created kick_subscriptions table');
+  }
 }
 
 // ─── Guild Operations ───
@@ -278,6 +290,36 @@ function listLiveYoutubeStreamerPlatforms() {
   `).all();
 }
 
+function getKickSubscription(broadcasterUserId) {
+  return getDb().prepare('SELECT * FROM kick_subscriptions WHERE broadcaster_user_id = ?').get(broadcasterUserId);
+}
+
+function upsertKickSubscription(broadcasterUserId, subscriptionId) {
+  const now = new Date().toISOString();
+  getDb().prepare(`
+    INSERT INTO kick_subscriptions (broadcaster_user_id, subscription_id, created_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(broadcaster_user_id) DO UPDATE SET
+      subscription_id = excluded.subscription_id,
+      created_at = excluded.created_at
+  `).run(broadcasterUserId, subscriptionId, now);
+}
+
+function removeKickSubscription(broadcasterUserId) {
+  getDb().prepare('DELETE FROM kick_subscriptions WHERE broadcaster_user_id = ?').run(broadcasterUserId);
+}
+
+function listKickSubscriptions() {
+  return getDb().prepare('SELECT * FROM kick_subscriptions').all();
+}
+
+function countStreamersByKickChannel(broadcasterUserId) {
+  return getDb().prepare(`
+    SELECT COUNT(*) as n FROM streamer_platforms
+    WHERE platform = 'kick' AND platform_user_id = ?
+  `).get(broadcasterUserId).n;
+}
+
 function getStreamers(guildId) {
   const db = getDb();
   const streamers = db.prepare('SELECT * FROM streamers WHERE guild_id = ?').all(guildId);
@@ -340,5 +382,10 @@ module.exports = {
   countStreamersByYoutubeChannel,
   setCurrentVideoId,
   clearCurrentVideoId,
-  listLiveYoutubeStreamerPlatforms
+  listLiveYoutubeStreamerPlatforms,
+  getKickSubscription,
+  upsertKickSubscription,
+  removeKickSubscription,
+  listKickSubscriptions,
+  countStreamersByKickChannel
 };
