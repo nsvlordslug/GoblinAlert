@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { getStreamerCount, getTikTokCount } = require('../db/database');
+const { getStreamerCount } = require('../db/database');
 const { getGuildTier } = require('../services/tierGate');
 
 module.exports = {
@@ -10,15 +10,13 @@ module.exports = {
   async execute(interaction) {
     const tier = getGuildTier(interaction.guildId);
     const streamerCount = getStreamerCount(interaction.guildId);
-    const tikTokCount = getTikTokCount(interaction.guildId);
 
     const embed = new EmbedBuilder()
       .setTitle('GoblinAlert status')
       .setColor(0x5865F2)
       .addFields(
         { name: 'Current tier', value: tier.name, inline: true },
-        { name: 'Streamers', value: `${streamerCount} / ${tier.maxStreamers}`, inline: true },
-        { name: 'TikTok slots', value: tier.maxTikTok > 0 ? `${tikTokCount} / ${tier.maxTikTok}` : 'Requires paid tier', inline: true }
+        { name: 'Streamers', value: `${streamerCount} / ${tier.maxStreamers}`, inline: true }
       )
       .setFooter({ text: 'Use /upgrade to see available plans' });
 

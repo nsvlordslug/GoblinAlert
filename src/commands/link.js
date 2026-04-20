@@ -42,9 +42,7 @@ module.exports = {
         .setRequired(true)
         .addChoices(
           { name: 'Twitch', value: 'twitch' },
-          { name: 'YouTube', value: 'youtube' },
-          { name: 'Kick', value: 'kick' },
-          { name: 'TikTok', value: 'tiktok' }
+          { name: 'YouTube', value: 'youtube' }
         )
     )
     .addStringOption(option =>

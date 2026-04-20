@@ -14,14 +14,10 @@ module.exports = {
       .setColor(0x5865F2)
       .setDescription(`You're currently on the **${currentTier.name}** tier.`)
       .addFields(
-        { name: 'Free', value: '25 streamers\nTwitch + YouTube + Kick', inline: true },
-        { name: 'Plus — $3/mo', value: '50 streamers\nTwitch + YouTube + Kick', inline: true },
-        { name: '\u200b', value: '\u200b', inline: true },
-        { name: 'TikTok — $3/mo', value: '25 streamers\n+ 5 TikTok streamers', inline: true },
-        { name: 'Pro — $5/mo', value: '50 streamers\n+ 5 TikTok streamers', inline: true },
-        { name: '\u200b', value: '\u200b', inline: true }
+        { name: 'Free', value: '25 streamers\nTwitch + YouTube', inline: true },
+        { name: 'Plus — $3/mo', value: '50 streamers\nTwitch + YouTube', inline: true }
       )
-      .setFooter({ text: 'Subscriptions are managed through Discord' });
+      .setFooter({ text: 'More platforms and tiers coming soon. Subscriptions are managed through Discord.' });
 
     // TODO: Add premium button components once SKUs are created in Discord Dev Portal
     // For now just show the info embed
