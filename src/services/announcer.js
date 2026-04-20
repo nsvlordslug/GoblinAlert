@@ -91,14 +91,14 @@ async function sendAnnouncement(discordClient, streamer, livePlatforms, streamDe
   try {
     const channel = await discordClient.channels.fetch(guild.announcement_channel_id);
     if (!channel) {
+      const err = new Error(`Channel ${guild.announcement_channel_id} not found`);
       logger.error(`Could not find channel ${guild.announcement_channel_id}`);
-      return;
+      return { ok: false, error: err };
     }
 
     const embed = buildEmbed(streamer, livePlatforms, streamDetails);
     const buttons = buildButtons(livePlatforms);
 
-    // Build message content (role ping)
     let content = '';
     if (guild.ping_role_id) {
       content = `<@&${guild.ping_role_id}> **${streamer.display_name}** is now live!`;
@@ -114,7 +114,6 @@ async function sendAnnouncement(discordClient, streamer, livePlatforms, streamDe
 
     const message = await channel.send(messagePayload);
 
-    // Store the announcement reference
     const db = getDb();
     db.prepare(`
       INSERT INTO announcements (guild_id, streamer_id, message_id, channel_id)
@@ -122,8 +121,10 @@ async function sendAnnouncement(discordClient, streamer, livePlatforms, streamDe
     `).run(guild.guild_id, streamer.streamer_id, message.id, channel.id);
 
     logger.info(`Announcement sent: ${message.id} for ${streamer.display_name} in guild ${guild.guild_id}`);
+    return { ok: true };
   } catch (error) {
     logger.error(`Failed to send announcement for ${streamer.display_name}:`, error);
+    return { ok: false, error };
   }
 }
 

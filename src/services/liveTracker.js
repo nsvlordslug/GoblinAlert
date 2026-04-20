@@ -70,14 +70,18 @@ async function handleStreamOnline(platform, platformUserId, platformUsername, di
         logger.info(`Updated announcement for ${entry.display_name} in guild ${entry.guild_id} (added ${platform})`);
       } else if (!existingAnnouncement) {
         // Send new announcement
-        await sendAnnouncement(
+        const result = await sendAnnouncement(
           discordClient,
           entry,
           livePlatforms,
           streamDetails,
           guild
         );
-        logger.info(`Sent announcement for ${entry.display_name} in guild ${entry.guild_id} (${platform})`);
+        if (result.ok) {
+          logger.info(`Sent announcement for ${entry.display_name} in guild ${entry.guild_id} (${platform})`);
+        } else {
+          logger.warn(`Announcement not sent for ${entry.display_name} in guild ${entry.guild_id} — ${result.error?.message}`);
+        }
       }
     } catch (error) {
       logger.error(`Error handling stream.online for ${entry.display_name} in guild ${entry.guild_id}:`, error);
