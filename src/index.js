@@ -55,6 +55,34 @@ client.once('ready', () => {
   });
 });
 
+const youtubeApi = require('./platforms/youtubeApi');
+const youtubePubSub = require('./platforms/youtubePubSub');
+const youtubeLivePoller = require('./services/youtubeLivePoller');
+
+if (youtubeApi.isConfigured() && youtubePubSub.isConfigured()) {
+  logger.info('YouTube integration enabled — starting renewal and offline-poll timers');
+
+  setInterval(() => {
+    youtubePubSub.renewExpiringSubscriptions().catch(err => {
+      logger.error('YouTube subscription renewal tick failed:', err);
+    });
+  }, 6 * 60 * 60 * 1000);
+
+  client.once('ready', () => {
+    setInterval(() => {
+      youtubeLivePoller.pollOnce(client).catch(err => {
+        logger.error('YouTube offline poll tick failed:', err);
+      });
+    }, 2 * 60 * 1000);
+  });
+
+  youtubePubSub.renewExpiringSubscriptions().catch(err => {
+    logger.error('Initial YouTube subscription renewal failed:', err);
+  });
+} else {
+  logger.info('YouTube integration disabled (YOUTUBE_API_KEY and/or YOUTUBE_WEBHOOK_SECRET not set)');
+}
+
 // Login
 client.login(process.env.DISCORD_TOKEN).catch(err => {
   logger.error('Failed to login:', err.message);
