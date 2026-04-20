@@ -5,6 +5,8 @@ const { handleStreamOnline, handleStreamOffline } = require('../services/liveTra
 const youtubePubSub = require('../platforms/youtubePubSub');
 const youtubeApi = require('../platforms/youtubeApi');
 const { markYoutubeSubscriptionVerified } = require('../db/database');
+const kickEvents = require('../platforms/kickEvents');
+const kickApi = require('../platforms/kickApi');
 
 const TWITCH_MESSAGE_ID = 'twitch-eventsub-message-id';
 const TWITCH_MESSAGE_TIMESTAMP = 'twitch-eventsub-message-timestamp';
@@ -128,6 +130,61 @@ function createWebhookServer(discordClient) {
     }
     res.status(200).send(challenge);
   });
+
+  // POST /webhooks/kick — Kick event notification
+  app.post('/webhooks/kick',
+    express.raw({ type: 'application/json', limit: '1mb' }),
+    async (req, res) => {
+      const rawBody = req.body;
+      const headers = req.headers;
+
+      const isValid = await kickEvents.verifyEventSignature(rawBody, headers);
+      if (!isValid) {
+        logger.warn('Kick webhook signature verification failed');
+        return res.status(401).send('bad signature');
+      }
+
+      const messageId = headers['kick-event-message-id'];
+      if (kickEvents.isDuplicateMessage(messageId)) {
+        logger.debug(`Kick duplicate message ${messageId}, acking without processing`);
+        return res.status(200).send('duplicate');
+      }
+      kickEvents.recordMessage(messageId);
+
+      res.status(202).send('accepted');
+
+      try {
+        const { broadcasterUserId, isLive, payload } = kickEvents.parseEventPayload(rawBody);
+        if (!broadcasterUserId || typeof isLive !== 'boolean') {
+          logger.warn(`Kick event payload missing required fields: ${JSON.stringify(payload)}`);
+          return;
+        }
+
+        if (isLive) {
+          const info = await kickApi.getStreamInfo(broadcasterUserId);
+          if (!info) {
+            logger.warn(`Kick event: could not fetch stream info for broadcaster ${broadcasterUserId}`);
+            return;
+          }
+          const streamDetails = {
+            title: info.title,
+            thumbnailUrl: info.thumbnailUrl,
+            viewerCount: info.viewerCount,
+            startedAt: info.startedAt,
+            game: info.category
+          };
+          await handleStreamOnline('kick', broadcasterUserId, info.slug, discordClient, streamDetails);
+        } else {
+          const { getDb } = require('../db/database');
+          const row = getDb().prepare("SELECT platform_username FROM streamer_platforms WHERE platform = 'kick' AND platform_user_id = ? LIMIT 1").get(broadcasterUserId);
+          const slug = row?.platform_username || '';
+          await handleStreamOffline('kick', broadcasterUserId, slug, discordClient);
+        }
+      } catch (err) {
+        logger.error('Kick webhook processing error:', err);
+      }
+    }
+  );
 
   // POST /webhooks/youtube — PubSubHubbub content notification
   app.post('/webhooks/youtube',
