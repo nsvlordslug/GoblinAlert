@@ -40,7 +40,7 @@ async function handleStreamOnline(platform, platformUserId, platformUsername, di
 
   // Find all streamer_platforms entries matching this platform + user
   const platformEntries = db.prepare(`
-    SELECT sp.*, s.id as streamer_id, s.display_name, s.guild_id
+    SELECT sp.*, s.id as streamer_id, s.display_name, s.guild_id, s.custom_message
     FROM streamer_platforms sp
     JOIN streamers s ON sp.streamer_id = s.id
     WHERE sp.platform = ? AND (sp.platform_user_id = ? OR sp.platform_username = ? COLLATE NOCASE)
@@ -126,7 +126,7 @@ async function handleStreamOffline(platform, platformUserId, platformUsername, d
   const db = getDb();
 
   const platformEntries = db.prepare(`
-    SELECT sp.*, s.id as streamer_id, s.display_name, s.guild_id
+    SELECT sp.*, s.id as streamer_id, s.display_name, s.guild_id, s.custom_message
     FROM streamer_platforms sp
     JOIN streamers s ON sp.streamer_id = s.id
     WHERE sp.platform = ? AND (sp.platform_user_id = ? OR sp.platform_username = ? COLLATE NOCASE)

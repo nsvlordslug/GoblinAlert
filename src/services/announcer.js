@@ -13,6 +13,18 @@ function getPlatformUrl(platform, username) {
   }
 }
 
+/**
+ * Build the text content for a go-live announcement.
+ * Option A: role ping (if set) is always auto-prepended.
+ * Custom message controls the body. Supports {streamer} template variable.
+ */
+function buildContent(streamer, guild) {
+  const body = streamer.custom_message
+    ? streamer.custom_message.replace(/\{streamer\}/g, streamer.display_name)
+    : `**${streamer.display_name}** is now live!`;
+  return guild.ping_role_id ? `<@&${guild.ping_role_id}> ${body}` : body;
+}
+
 function buildEmbed(streamer, livePlatforms, streamDetails, ended = false) {
   const primaryPlatform = livePlatforms[0]?.platform || 'twitch';
 
@@ -98,13 +110,7 @@ async function sendAnnouncement(discordClient, streamer, livePlatforms, streamDe
 
     const embed = buildEmbed(streamer, livePlatforms, streamDetails);
     const buttons = buildButtons(livePlatforms);
-
-    let content = '';
-    if (guild.ping_role_id) {
-      content = `<@&${guild.ping_role_id}> **${streamer.display_name}** is now live!`;
-    } else {
-      content = `**${streamer.display_name}** is now live!`;
-    }
+    const content = buildContent(streamer, guild);
 
     const messagePayload = {
       content,
@@ -195,4 +201,4 @@ async function deleteAnnouncement(discordClient, announcement) {
   }
 }
 
-module.exports = { sendAnnouncement, updateAnnouncement, deleteAnnouncement, buildEmbed, buildButtons, getPlatformUrl };
+module.exports = { sendAnnouncement, updateAnnouncement, deleteAnnouncement, buildEmbed, buildButtons, buildContent, getPlatformUrl };
