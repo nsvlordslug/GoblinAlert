@@ -4,6 +4,35 @@ const { getStreamInfo } = require('../platforms/twitchEventSub');
 const { sendAnnouncement, updateAnnouncement, deleteAnnouncement } = require('./announcer');
 
 /**
+ * DM the guild owner with an announcement failure message.
+ * Best-effort: if DMs fail (owner left the server, DMs disabled), we log and move on.
+ */
+async function notifyOwnerOfFailure(discordClient, guildId, streamer, error) {
+  try {
+    const discordGuild = await discordClient.guilds.fetch(guildId);
+    if (!discordGuild) return;
+    const owner = await discordGuild.fetchOwner();
+    if (!owner) return;
+
+    const reason = error?.code === 50001
+      ? 'I don\'t have access to the announcement channel (Missing Access). The channel may have been deleted, I may have been kicked from it, or my role may have lost `View Channel` / `Send Messages` permission there.'
+      : error?.code === 50013
+      ? 'I\'m missing permissions in the announcement channel (Missing Permissions). I need `View Channel`, `Send Messages`, and `Embed Links`.'
+      : `Discord API error: ${error?.message || 'unknown'}.`;
+
+    await owner.send(
+      `**GoblinAlert — announcement failed in ${discordGuild.name}**\n` +
+      `I couldn't post the go-live announcement for **${streamer.display_name}**.\n\n` +
+      `**Reason:** ${reason}\n\n` +
+      `**Fix:** Run \`/setup\` again to pick a working channel, or give me the right permissions on the current one. Run \`/status\` to see current config.`
+    );
+    logger.info(`Notified owner of guild ${guildId} about announcement failure for ${streamer.display_name}`);
+  } catch (dmError) {
+    logger.warn(`Could not DM owner of guild ${guildId}: ${dmError.message}`);
+  }
+}
+
+/**
  * Handle a streamer going live on a platform
  */
 async function handleStreamOnline(platform, platformUserId, platformUsername, discordClient) {
@@ -81,6 +110,7 @@ async function handleStreamOnline(platform, platformUserId, platformUsername, di
           logger.info(`Sent announcement for ${entry.display_name} in guild ${entry.guild_id} (${platform})`);
         } else {
           logger.warn(`Announcement not sent for ${entry.display_name} in guild ${entry.guild_id} — ${result.error?.message}`);
+          await notifyOwnerOfFailure(discordClient, entry.guild_id, entry, result.error);
         }
       }
     } catch (error) {
