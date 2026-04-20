@@ -2,6 +2,9 @@ const express = require('express');
 const crypto = require('crypto');
 const logger = require('../utils/logger');
 const { handleStreamOnline, handleStreamOffline } = require('../services/liveTracker');
+const youtubePubSub = require('../platforms/youtubePubSub');
+const youtubeApi = require('../platforms/youtubeApi');
+const { markYoutubeSubscriptionVerified } = require('../db/database');
 
 const TWITCH_MESSAGE_ID = 'twitch-eventsub-message-id';
 const TWITCH_MESSAGE_TIMESTAMP = 'twitch-eventsub-message-timestamp';
@@ -96,6 +99,82 @@ function createWebhookServer(discordClient) {
 
     res.status(204).send();
   });
+
+  // GET /webhooks/youtube — PubSubHubbub subscription verification
+  app.get('/webhooks/youtube', (req, res) => {
+    const mode = req.query['hub.mode'];
+    const topic = req.query['hub.topic'];
+    const challenge = req.query['hub.challenge'];
+    const leaseSeconds = Number(req.query['hub.lease_seconds']) || youtubePubSub.LEASE_SECONDS;
+
+    if (!mode || !topic || !challenge) {
+      logger.warn('YouTube verification GET missing required params');
+      return res.status(400).send('missing params');
+    }
+
+    const channelIdMatch = topic.match(/channel_id=(UC[\w-]{22})/);
+    const channelId = channelIdMatch?.[1];
+    if (!channelId) {
+      logger.warn(`YouTube verification GET with unrecognized topic: ${topic}`);
+      return res.status(404).send('unknown topic');
+    }
+
+    if (mode === 'subscribe') {
+      const expiresAt = new Date(Date.now() + leaseSeconds * 1000).toISOString();
+      markYoutubeSubscriptionVerified(channelId, expiresAt);
+      logger.info(`YouTube subscription verified: channel ${channelId}, expires ${expiresAt}`);
+    } else if (mode === 'unsubscribe') {
+      logger.info(`YouTube unsubscription verified: channel ${channelId}`);
+    }
+    res.status(200).send(challenge);
+  });
+
+  // POST /webhooks/youtube — PubSubHubbub content notification
+  app.post('/webhooks/youtube',
+    express.raw({ type: ['application/atom+xml', 'application/xml', 'text/xml'], limit: '1mb' }),
+    async (req, res) => {
+      const signatureHeader = req.get('X-Hub-Signature');
+      const rawBody = req.body;
+
+      if (!youtubePubSub.verifyHubSignature(rawBody, signatureHeader)) {
+        logger.warn(`YouTube webhook signature verification failed (sig: ${signatureHeader})`);
+        return res.status(401).send('bad signature');
+      }
+
+      res.status(202).send('accepted');
+
+      try {
+        const xml = rawBody.toString('utf8');
+        const entries = youtubePubSub.parseAtomEntries(xml);
+        if (entries.length === 0) {
+          logger.debug('YouTube webhook: no entries in push');
+          return;
+        }
+
+        for (const entry of entries) {
+          const info = await youtubeApi.getVideoInfo(entry.videoId);
+          if (!info) {
+            logger.debug(`YouTube webhook: no info returned for video ${entry.videoId}, skipping`);
+            continue;
+          }
+          if (info.liveBroadcastContent !== 'live') {
+            logger.debug(`YouTube webhook: video ${entry.videoId} is ${info.liveBroadcastContent}, skipping (non-premiere mode)`);
+            continue;
+          }
+          const streamDetails = {
+            title: info.title,
+            thumbnailUrl: info.thumbnailUrl,
+            viewerCount: info.viewerCount,
+            startedAt: info.startedAt,
+            videoId: info.id
+          };
+          await handleStreamOnline('youtube', entry.channelId, info.channelTitle, discordClient, streamDetails);
+        }
+      } catch (err) {
+        logger.error('YouTube webhook processing error:', err);
+      }
+    }
+  );
 
   return app;
 }
