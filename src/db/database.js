@@ -85,6 +85,27 @@ function runMigrations() {
     db.exec('ALTER TABLE streamers ADD COLUMN custom_message TEXT');
     logger.info('Migration: added streamers.custom_message column');
   }
+
+  const streamerPlatformCols = db.prepare('PRAGMA table_info(streamer_platforms)').all();
+  if (!streamerPlatformCols.some(c => c.name === 'current_video_id')) {
+    db.exec('ALTER TABLE streamer_platforms ADD COLUMN current_video_id TEXT');
+    logger.info('Migration: added streamer_platforms.current_video_id column');
+  }
+
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='youtube_subscriptions'").all();
+  if (tables.length === 0) {
+    db.exec(`
+      CREATE TABLE youtube_subscriptions (
+        channel_id TEXT PRIMARY KEY,
+        topic_url TEXT NOT NULL,
+        hub_url TEXT NOT NULL DEFAULT 'https://pubsubhubbub.appspot.com/subscribe',
+        subscribed_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        verified_at TEXT
+      );
+    `);
+    logger.info('Migration: created youtube_subscriptions table');
+  }
 }
 
 // ─── Guild Operations ───
@@ -199,6 +220,64 @@ function clearCustomMessage(guildId, displayName) {
   return streamer;
 }
 
+function getYoutubeSubscription(channelId) {
+  return getDb().prepare('SELECT * FROM youtube_subscriptions WHERE channel_id = ?').get(channelId);
+}
+
+function upsertYoutubeSubscription(channelId, topicUrl, expiresAt) {
+  const now = new Date().toISOString();
+  getDb().prepare(`
+    INSERT INTO youtube_subscriptions (channel_id, topic_url, subscribed_at, expires_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(channel_id) DO UPDATE SET
+      topic_url = excluded.topic_url,
+      subscribed_at = excluded.subscribed_at,
+      expires_at = excluded.expires_at
+  `).run(channelId, topicUrl, now, expiresAt);
+}
+
+function markYoutubeSubscriptionVerified(channelId, expiresAt) {
+  const now = new Date().toISOString();
+  getDb().prepare(`
+    UPDATE youtube_subscriptions
+    SET verified_at = ?, expires_at = ?
+    WHERE channel_id = ?
+  `).run(now, expiresAt, channelId);
+}
+
+function removeYoutubeSubscription(channelId) {
+  getDb().prepare('DELETE FROM youtube_subscriptions WHERE channel_id = ?').run(channelId);
+}
+
+function listExpiringYoutubeSubscriptions(withinHours) {
+  const cutoff = new Date(Date.now() + withinHours * 3600 * 1000).toISOString();
+  return getDb().prepare('SELECT * FROM youtube_subscriptions WHERE expires_at < ?').all(cutoff);
+}
+
+function countStreamersByYoutubeChannel(channelId) {
+  return getDb().prepare(`
+    SELECT COUNT(*) as n FROM streamer_platforms
+    WHERE platform = 'youtube' AND platform_user_id = ?
+  `).get(channelId).n;
+}
+
+function setCurrentVideoId(streamerPlatformId, videoId) {
+  getDb().prepare('UPDATE streamer_platforms SET current_video_id = ? WHERE id = ?').run(videoId, streamerPlatformId);
+}
+
+function clearCurrentVideoId(streamerPlatformId) {
+  getDb().prepare('UPDATE streamer_platforms SET current_video_id = NULL WHERE id = ?').run(streamerPlatformId);
+}
+
+function listLiveYoutubeStreamerPlatforms() {
+  return getDb().prepare(`
+    SELECT sp.*, s.display_name, s.guild_id, s.custom_message
+    FROM streamer_platforms sp
+    JOIN streamers s ON sp.streamer_id = s.id
+    WHERE sp.platform = 'youtube' AND sp.is_live = 1 AND sp.current_video_id IS NOT NULL
+  `).all();
+}
+
 function getStreamers(guildId) {
   const db = getDb();
   const streamers = db.prepare('SELECT * FROM streamers WHERE guild_id = ?').all(guildId);
@@ -252,5 +331,14 @@ module.exports = {
   getStreamerCount,
   getTikTokCount,
   getActiveEntitlement,
-  upsertEntitlement
+  upsertEntitlement,
+  getYoutubeSubscription,
+  upsertYoutubeSubscription,
+  markYoutubeSubscriptionVerified,
+  removeYoutubeSubscription,
+  listExpiringYoutubeSubscriptions,
+  countStreamersByYoutubeChannel,
+  setCurrentVideoId,
+  clearCurrentVideoId,
+  listLiveYoutubeStreamerPlatforms
 };
