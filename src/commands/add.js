@@ -1,9 +1,29 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const { addStreamer, ensureGuild, getDb } = require('../db/database');
+const { addStreamer, ensureGuild, getDb, getYoutubeSubscription } = require('../db/database');
 const { canAddStreamer, canAddTikTok } = require('../services/tierGate');
 const { PAID_PLATFORMS, PLATFORM_LABELS } = require('../utils/constants');
 const { getTwitchUserId, subscribeToStreamEvents } = require('../platforms/twitchEventSub');
+const youtubeApi = require('../platforms/youtubeApi');
+const youtubePubSub = require('../platforms/youtubePubSub');
 const logger = require('../utils/logger');
+
+async function prepareYouTubePlatform(userInput) {
+  if (!youtubeApi.isConfigured() || !youtubePubSub.isConfigured()) {
+    throw new Error('YouTube integration isn\'t configured on this bot. Please contact the bot operator.');
+  }
+  const resolved = await youtubeApi.resolveChannelId(userInput);
+  if (!resolved) {
+    throw new Error(`Could not find YouTube channel "${userInput}". Check the handle, URL, or channel ID and try again.`);
+  }
+  const existing = getYoutubeSubscription(resolved.channelId);
+  if (!existing) {
+    await youtubePubSub.subscribe(resolved.channelId);
+  }
+  return {
+    resolvedUsername: resolved.handle || resolved.title,
+    resolvedUserId: resolved.channelId
+  };
+}
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -68,14 +88,35 @@ module.exports = {
       });
     }
 
+    let finalUsername = username;
+    let finalUserId = null;
+    if (platform === 'youtube') {
+      try {
+        const prepared = await prepareYouTubePlatform(username);
+        finalUsername = prepared.resolvedUsername;
+        finalUserId = prepared.resolvedUserId;
+      } catch (err) {
+        await interaction.reply({ content: `:x: ${err.message}`, ephemeral: true });
+        return;
+      }
+    }
+
     try {
-      addStreamer(interaction.guildId, displayName, platform, username);
-      logger.info(`Guild ${interaction.guildId}: added ${displayName} on ${platform} (${username})`);
+      addStreamer(interaction.guildId, displayName, platform, finalUsername);
+      logger.info(`Guild ${interaction.guildId}: added ${displayName} on ${platform} (${finalUsername})`);
+
+      if (platform === 'youtube' && finalUserId) {
+        getDb().prepare(`
+          UPDATE streamer_platforms SET platform_user_id = ?
+          WHERE streamer_id = (SELECT id FROM streamers WHERE guild_id = ? AND display_name = ? COLLATE NOCASE)
+            AND platform = 'youtube'
+        `).run(finalUserId, interaction.guildId, displayName);
+      }
 
       // If platform is Twitch, resolve user ID and subscribe to EventSub
       if (platform === 'twitch') {
         try {
-          const twitchUser = await getTwitchUserId(username);
+          const twitchUser = await getTwitchUserId(finalUsername);
           // Save the Twitch user ID to the platform entry
           const db = getDb();
           db.prepare(`
@@ -88,12 +129,12 @@ module.exports = {
           // Subscribe to EventSub events
           await subscribeToStreamEvents(twitchUser.id);
         } catch (twitchError) {
-          logger.warn(`Could not set up Twitch EventSub for ${username}: ${twitchError.message}`);
+          logger.warn(`Could not set up Twitch EventSub for ${finalUsername}: ${twitchError.message}`);
           // Don't fail the whole add — the streamer is saved, EventSub can be retried
         }
       }
 
-      await interaction.reply(`Added **${displayName}** on ${PLATFORM_LABELS[platform]} (\`${username}\`). I'll announce when they go live.`);
+      await interaction.reply(`Added **${displayName}** on ${PLATFORM_LABELS[platform]} (\`${finalUsername}\`). I'll announce when they go live.`);
     } catch (err) {
       await interaction.reply({ content: err.message, ephemeral: true });
     }
