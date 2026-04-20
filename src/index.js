@@ -83,6 +83,24 @@ if (youtubeApi.isConfigured() && youtubePubSub.isConfigured()) {
   logger.info('YouTube integration disabled (YOUTUBE_API_KEY and/or YOUTUBE_WEBHOOK_SECRET not set)');
 }
 
+const kickEvents = require('./platforms/kickEvents');
+
+if (kickEvents.isConfigured()) {
+  logger.info('Kick integration enabled — starting health-check timer');
+
+  kickEvents.healthCheckAndResubscribe().catch(err => {
+    logger.error('Initial Kick health check failed:', err);
+  });
+
+  setInterval(() => {
+    kickEvents.healthCheckAndResubscribe().catch(err => {
+      logger.error('Kick health check tick failed:', err);
+    });
+  }, 6 * 60 * 60 * 1000);
+} else {
+  logger.info('Kick integration disabled (KICK_CLIENT_ID and/or KICK_CLIENT_SECRET not set)');
+}
+
 // Login
 client.login(process.env.DISCORD_TOKEN).catch(err => {
   logger.error('Failed to login:', err.message);
