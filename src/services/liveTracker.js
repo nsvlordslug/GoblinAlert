@@ -76,6 +76,18 @@ async function handleStreamOnline(platform, platformUserId, platformUsername, di
           streamDetails = await getStreamInfo(platformUserId);
         } else if (platform === 'youtube') {
           logger.warn(`YouTube handleStreamOnline called without preFetchedStreamDetails for channel ${platformUserId}; no fallback lookup available`);
+        } else if (platform === 'kick') {
+          const { getStreamInfo: getKickStreamInfo } = require('../platforms/kickApi');
+          const info = await getKickStreamInfo(platformUserId);
+          if (info) {
+            streamDetails = {
+              title: info.title,
+              thumbnailUrl: info.thumbnailUrl,
+              viewerCount: info.viewerCount,
+              startedAt: info.startedAt,
+              game: info.category
+            };
+          }
         }
       }
 
