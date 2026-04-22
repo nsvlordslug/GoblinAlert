@@ -67,10 +67,13 @@ module.exports = {
       });
     }
 
+    const rest = interaction.client.rest;
+    const route = `/guilds/${interaction.guildId}/members/@me`;
+
     if (sub === 'reset') {
       await interaction.deferReply({ ephemeral: true });
       try {
-        await me.edit({ avatar: null, banner: null });
+        await rest.patch(route, { body: { avatar: null, banner: null } });
         logger.info(`Guild ${interaction.guildId}: appearance reset to default`);
         await interaction.editReply('Reset. My avatar and banner are back to the default in this server. It may take a minute for Discord to refresh the cache on every client.');
       } catch (err) {
@@ -98,7 +101,7 @@ module.exports = {
       if (avatarUrl) payload.avatar = await urlToDataUri(avatarUrl, 'avatar');
       if (bannerUrl) payload.banner = await urlToDataUri(bannerUrl, 'banner');
 
-      await me.edit(payload);
+      await rest.patch(route, { body: payload });
 
       const changes = [];
       if (avatarUrl) changes.push('avatar');
@@ -109,11 +112,11 @@ module.exports = {
         `Updated. My ${changes.join(' and ')} in this server ${changes.length > 1 ? 'have' : 'has'} been changed. It may take a minute for Discord to refresh the cache on every client.`
       );
     } catch (err) {
-      logger.warn(`Guild ${interaction.guildId}: appearance set failed — ${err.message}`);
+      logger.warn(`Guild ${interaction.guildId}: appearance set failed — ${err.message}`, err.rawError || err);
       let hint = '';
-      if (err.code === 50013) {
-        hint = '\n\nI\'m missing permission to edit my own profile in this server. This shouldn\'t happen; please report it.';
-      } else if (err.message?.includes('Invalid Form Body')) {
+      if (err.code === 50013 || err.status === 403) {
+        hint = '\n\nI\'m missing permission to edit my own profile in this server.';
+      } else if (err.message?.includes('Invalid Form Body') || err.status === 400) {
         hint = '\n\nDiscord rejected the image. Check that the URL points directly to a PNG/JPG/GIF (not a page that contains an image) and is under 10 MB.';
       }
       await interaction.editReply(`:x: Couldn't update appearance: ${err.message}${hint}`);
